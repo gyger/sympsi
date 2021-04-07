@@ -3,10 +3,11 @@
 import warnings
 
 from sympy import Add, Mul, Pow, Integer, Integral, Sum
-from sympsi import Operator, Commutator, AntiCommutator
-from sympsi.pauli import SigmaOpBase
-from sympsi.boson import BosonOp
-from sympsi.fermion import FermionOp
+from sympy.physics.quantum import Operator, Commutator, AntiCommutator
+from sympy.physics.quantum.pauli import SigmaOpBase
+from sympy.physics.quantum.boson import BosonOp
+from sympy.physics.quantum.fermion import FermionOp
+
 from sympsi.operator import OperatorFunction
 from sympsi.expectation import Expectation
 

@@ -3,8 +3,9 @@
 from __future__ import print_function, division
 
 from sympy import Expr, Add, Mul, Integer, Symbol, Integral
-from sympsi.dagger import Dagger
-from sympsi.qapply import qapply
+
+from sympy.physics.quantum import Dagger
+from sympy.physics.quantum import qapply
 
 
 __all__ = [

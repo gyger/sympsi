@@ -28,6 +28,7 @@ __all__ = [
     'subs_single',
     'SymEq',
     'recursive_commutator',
+    'ncollect',
     'bch_expansion',
     'unitary_transformation',
     'hamiltonian_transformation',
@@ -44,15 +45,19 @@ from collections import namedtuple
 from sympy import (Add, Mul, Pow, exp, latex, Integral, Sum, Integer, Symbol,
                    I, pi, simplify, oo, DiracDelta, KroneckerDelta, collect,
                    factorial, diff, Function, Derivative, Eq, symbols,
-                   Matrix, Equality, MatMul, Dummy)
+                   Matrix, Equality, MatMul, Dummy, rcollect, Poly, O, linsolve)
 
 from sympy.core.sympify import _sympify
 from sympy.core.relational import Relational
 from sympy import (sin, cos, sinh, cosh)
-from sympsi import Operator, Commutator, Dagger
+
+from sympy.physics.quantum import Operator, Commutator, Dagger
+from sympy.physics.quantum.pauli import (SigmaX, SigmaY, SigmaMinus, SigmaPlus)
+
+# TODO: figure out whether we can simply use the sympy version!!
+#from sympy.physics.quantum.operatorordering import normal_ordered_form
 from sympsi.operatorordering import normal_ordered_form
 from sympsi.expectation import Expectation
-from sympsi.pauli import (SigmaX, SigmaY, SigmaMinus, SigmaPlus)
 
 debug = False
 
@@ -610,7 +615,6 @@ def extract_operators(e, independent=False):
     expression e.
     """
     ops = []
-
     if isinstance(e, Operator):
         ops.append(e)
 
@@ -839,7 +843,6 @@ def _bch_expansion(A, B, N=10):
     e = B
     for n in range(1, N):
         e += recursive_commutator(A, B, n=n) / factorial(n)
-
     return e
 
 
@@ -859,7 +862,11 @@ def _order(e):
         return 0
     
 def _lowest_order_term(e):
-
+    """Get the term (in a summation) which has the lowest order (of whatever symbol)
+    Example:
+        - a*a + b -> b, 1
+        - a*a*b -> a*a*b, 3
+    """
     if isinstance(e, Add):
         min_order = _order(e.args[0])
         min_expr = e.args[0]
@@ -873,7 +880,13 @@ def _lowest_order_term(e):
         return e, _order(e)
 
 
-def _expansion_search(e, rep_list, N):
+_s = Dummy()
+_fncs = [cos, sin, 
+         exp, lambda x: exp(-x),
+         lambda x: exp(I*x), lambda x: exp(-I*x),
+         sinh, cosh]
+_series = [fnc(_s).series(_s, n=20) for fnc in _fncs]
+def _expansion_search(expr, rep_list, lib=None):
     """
     Search for and substitute terms that match a series expansion of
     fundamental math functions.
@@ -883,91 +896,94 @@ def _expansion_search(e, rep_list, N):
     rep_list: list containing dummy variables
 
     """
-    if e.find(I):
-        is_complex = True
-    else:
-        is_complex = False
-
     if debug:
-        print("_expansion_search: ", e)
+        print("_expansion_search: ", expr)
 
     try:
-        dummy = Dummy()
-
-        flist0 = [exp, lambda x: exp(-x), cos, cosh]
-
-        flist1 = [lambda x: (exp(x) - 1) / x,
-                  lambda x: (1 - exp(-x)) / x,
-                  lambda x: sin(x) / x,
-                  lambda x: sinh(x) / x]
-
-        flist2 = [lambda x: (1 - cos(x))/(x**2/2),
-                  lambda x: (cosh(x)-1)/(x**2/2)]
-
-        if is_complex:
-            iflist0 = [lambda x: exp(I*x),
-                       lambda x: exp(-I*x)]
-            iflist1 = [lambda x: (exp(I*x) - 1) / (I*x),
-                       lambda x: (1 - exp(-I*x)) / (I*x)]
-
-            flist0 = iflist0 + flist0
-            flist1 = iflist1 + flist1
-
-        flist = [flist0, flist1, flist2]
-        fseries = {}
-
-        if isinstance(e, Mul):
-            e_args = [e]
-        elif isinstance(e, Add):
-            e_args = e.args
+        if isinstance(expr, Mul):
+            exprs = [expr]
+        elif isinstance(expr, Add):
+            exprs = expr.args
         else:
-            return e
+            return expr
 
+        if lib is not None:
+            fncs, series = lib
+        else:
+            fncs, series = _fncs, _series 
+            
         newargs = []
-        for e in e_args:
-            if isinstance(e, Mul):
-                c, nc = e.args_cnc()
+        for expr in exprs:
+            # Try to simplify the expression
+            if isinstance(expr, Mul):
+                # Split the expression into a LIST of commutative and a LIST of non-commutative factor (i.e. operators).
+                c, nc = expr.args_cnc()
                 if nc and c:
-                    c_expr = Mul(*c).expand()
-                    d, d_order = _lowest_order_term(c_expr)
-                    c_expr_normal = (c_expr / d).expand()
-                    c_expr_subs = c_expr_normal
-
-                    for alpha in rep_list:
-                        if alpha not in c_expr_subs.free_symbols:
-                            continue
-
-                        for f in flist[d_order]:
-                            if f not in fseries.keys():
-                                fseries[f] = f(dummy).series(
-                                    dummy, n=N-d_order).removeO()
-                            c_expr_subs = c_expr_subs.subs(
-                                fseries[f].subs(dummy, alpha), f(alpha))
-                            if c_expr_subs != c_expr_normal:
-                                break
-                        if c_expr_subs != c_expr_normal:
-                            break
-                    newargs.append(d * c_expr_subs * Mul(*nc))
+                    # Construct an expression of commutative elements ONLY.
+                    expr = Mul(*c).expand() 
+                    #out = find_expansion(expr, *rep_list)
+                    
+                    eq = Poly(expr, *rep_list)
+                    bdict = eq.as_dict()
+                    
+                    if any([n > 1 for n in [sum([i!=0 for i in k]) for k in bdict.keys()]]):
+                        raise ValueError("Expressions cross-products of symbols are not supported (yet?)..")
+                    
+                    # Construct the list of 'vectors'
+                    vecl = []; fncl = []
+                    for x in rep_list:
+                        for n in range(3): #range(eq.degree()-1):
+                            X = pow(x,n)
+                            vecl.extend([((X*p.subs(_s, x)).expand()+O(pow(x, eq.degree()+1))).removeO() for p in series])
+                            fncl.extend([X*f(x) for f in fncs])
+                        vecl.extend([pow(x,n) for n in range(max(eq.degree(), 3))])
+                        fncl.extend([pow(x,n) for n in range(max(eq.degree(), 3))])    
+                
+                    # Create vector coefficients
+                    q = symbols(f'q:{len(vecl)}')
+                    # Take inner product of 'vector' list and vector coefficients
+                    A = Add(*[x*y for x,y in zip(q, vecl)]).as_poly(*rep_list)
+                
+                    terms = []
+                    for k, eq in A.as_dict().items():
+                        terms.append(eq - bdict.get(k, 0))
+                    H = linsolve(terms, *q)
+                    h = H.subs({k: 0 for k in q})
+                
+                    out = Add(*[c*fnc for fnc, c in zip(fncl, list(h)[0])])
+                    
+                    newargs.append(out * Mul(*nc))
                 else:
-                    newargs.append(e)
+                    newargs.append(expr)
             else:
-                newargs.append(e)
-
+                newargs.append(expr)
+                
         return Add(*newargs)
 
     except Exception as e:
         print("Failed to identify series expansions: " + str(e))
         return e
 
-
+def ncollect(expr, *syms):
+    """ A version of collect that 'works' with non-commuting sybols"""
+    reg = {}
+    for s in syms:
+        dummy = Dummy()
+        expr = expr.subs(s, dummy)
+        reg[dummy] = s
+        
+    expr = collect(expr, reg.keys())    
+    return expr.subs(reg)
+    
 def bch_expansion(A, B, N=6, collect_operators=None, independent=False,
                   expansion_search=True):
-
+    """ Apply the BCH expansion using the exponent A and the operator B """
+    
     # Use BCH expansion of order N
-
     if debug:
         print("bch_expansion: ", A, B)
 
+    # Split the terms (of the summation) into tuples of variables and operators
     cno = split_coeff_operator(A)
     if isinstance(cno, list):
         nvar = len(cno)
@@ -986,19 +1002,26 @@ def bch_expansion(A, B, N=6, collect_operators=None, independent=False,
     rep_list = []
     var_list = []
 
+    # Extract the parts of the exponent expression that contains symbols only...
+    # 3*theta*I*sx + b*I*phi*sy => [theta, b*phi]
+    # b*exp(-phi*sy) => [b*exp(-phi*SigmaY())]
     for n in range(nvar):
         rep_list.append(Dummy())
-
+        
+        # Split multiplication into Coefficient (Number) and an equation of Symbols (only)
         coeff, sym = c_list[n].as_coeff_Mul()
         if isinstance(sym, Mul):
             sym_ = simplify(sym)
-            if I in sym_.args:
+            if I in sym_.args: 
                 var_list.append(sym_/I)
             elif any([isinstance(arg, exp) for arg in sym_.args]):
+                # In case there are exponentials in symbols equation, split it into a part with 
+                # and a part without exponentials
                 nexps = Mul(*[arg for arg in sym_.args
                               if not isinstance(arg, exp)])
                 exps = Mul(*[arg for arg in sym_.args if isinstance(arg, exp)])
 
+                # I don't follow this....
                 if I in simplify(exps).exp.args:
                     var_list.append(nexps)
                 else:
@@ -1019,19 +1042,27 @@ def bch_expansion(A, B, N=6, collect_operators=None, independent=False,
     if debug:
         print("extract operators: ")
 
-    ops = extract_operator_products(e, independent=independent)
-
-    # make sure that product operators comes first in the list
-    ops = list(reversed(sorted(ops, key=lambda x: len(str(x)))))
+    if collect_operators:
+        ops = collect_operators
+    else:
+        ops = extract_operator_products(e, independent=independent)
+        # make sure that product operators comes first in the list
+        ops = list(reversed(sorted(ops, key=lambda x: len(str(x)))))
 
     if debug:
         print("operators in expression: ", ops)
 
-    if collect_operators:
-        e_collected = collect(e, collect_operators)
-    else:
-        e_collected = collect(e, ops)
-
+    # Apply hack to pass aroung collect to handling non-commuting symbols....
+    e_collected = ncollect(e, *ops)
+    # reg = {}
+    # for op in ops:
+    #     dummy = Dummy()
+    #     e = e.subs(op, dummy)
+    #     reg[dummy] = op
+        
+    # e_collected = collect(e, reg.keys())    
+    # e_collected = e_collected.subs(reg)
+    
     if debug:
         print("search for series expansions: ", expansion_search)
 
@@ -1039,7 +1070,7 @@ def bch_expansion(A, B, N=6, collect_operators=None, independent=False,
         print("e_collected: ", e_collected)
 
     if expansion_search and c_list:
-        e_collected = _expansion_search(e_collected, rep_list, N)
+        e_collected = _expansion_search(e_collected, rep_list)
         e_collected = e_collected.subs({rep_list[n]: var_list[n]
                                         for n in range(nvar)})
 
@@ -1047,7 +1078,6 @@ def bch_expansion(A, B, N=6, collect_operators=None, independent=False,
     else:
         return e_collected.subs(
             {rep_list[n]: var_list[n] for n in range(nvar)})
-
 
 # -----------------------------------------------------------------------------
 # Transformations
@@ -1071,7 +1101,7 @@ def unitary_transformation(U, O, N=6, collect_operators=None,
 
     if debug:
         print("unitary_transformation: using A = ", A)
-
+        
     if allinone:
         return bch_expansion(A, O, N=N, collect_operators=collect_operators,
                              independent=independent,
@@ -1083,13 +1113,22 @@ def unitary_transformation(U, O, N=6, collect_operators=None,
                                       independent=independent,
                                       expansion_search=expansion_search)
                     for op in ops}
-
-        #return O.subs(ops_subs, simultaneous=True) # XXX: this this
-        return subs_single(O, ops_subs)
+        
+        expr = subs_single(O, ops_subs)
+        
+        nexpr = Add()
+        for expr in expr.args:
+            c, nc = expr.args_cnc()
+            if nc and c:
+                expr = Mul(*c).expand() 
+                expr = expr.simplify() * Mul(*nc) 
+            nexpr += expr
+        return nexpr
 
 
 def hamiltonian_transformation(U, H, N=6, collect_operators=None,
-                               independent=False, expansion_search=True):
+                               independent=False, expansion_search=True, 
+                               allinone = False):
     """
     Apply an unitary basis transformation to the Hamiltonian H:
 
@@ -1107,7 +1146,8 @@ def hamiltonian_transformation(U, H, N=6, collect_operators=None,
     H_st = unitary_transformation(U, H, N=N,
                                   collect_operators=collect_operators,
                                   independent=independent,
-                                  expansion_search=expansion_search)
+                                  expansion_search=expansion_search, 
+                                  allinone=allinone)
     return H_st + H_td
 
 

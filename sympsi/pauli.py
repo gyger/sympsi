@@ -1,8 +1,7 @@
 """Pauli operators and states"""
 
 from sympy import I, Mul, Add, Pow, exp, Integer
-from sympsi import Operator, Ket, Bra
-from sympsi import ComplexSpace
+from sympy.physics.quantum import Operator, Ket, Bra, ComplexSpace
 from sympy.matrices import Matrix
 from sympy.functions.special.tensor_functions import KroneckerDelta
 
