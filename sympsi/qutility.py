@@ -45,7 +45,7 @@ import warnings
 from collections import namedtuple
 from sympy import (Add, Mul, Pow, exp, latex, Integral, Sum, Integer, Symbol,
                    I, pi, simplify, oo, DiracDelta, KroneckerDelta, collect,
-                   factorial, diff, Function, Derivative, Eq, symbols,
+                   factorial, diff, Function, Derivative, Eq, symbols, S,
                    Matrix, Equality, MatMul, Dummy, rcollect, Poly, O, linsolve)
 
 from sympy.core.sympify import _sympify
@@ -965,25 +965,39 @@ def _expansion_search(expr, rep_list, lib=None):
         print("Failed to identify series expansions: " + str(e))
         return e
 
-def get_coefficient(expr, ops):
-    expr = ncollect(expr.expand())
-    for term in expr.args:
-        for i, e in enumerate(term.args):
-            if isinstance(e, Operator) or isinstance(Dagger(e), Operator):
+def get_coefficient(expr, ops, right=True):
+    """ Search for the coefficients to either the left or right of ops"""
+    if expr == S.Zero:
+        return expr
+    
+    if isinstance(expr, Add):
+        out = Add()
+        for term in expr.args:
+            out += get_coefficient(term, ops, right=right) 
+        if out != S.Zero:  
+            return out
+    elif isinstance(expr, Mul):
+        items = expr.args if right else reversed(expr.args)
+        for e in items:
+            if isinstance(e, Operator) or isinstance(Dagger(e), Operator) or isinstance(e, Add):
                 break
-        if e != ops:
-            continue
-        term = list(term.args)
-        term.pop(i)
-        return Mul(*term)
-    return Add()
+        if e == ops:
+            terms = list(expr.args)
+            terms.remove(e)
+            return Mul(*terms)
+    elif (isinstance(e, Operator) or isinstance(Dagger(e), Operator)):
+        return Add(1)
+    return S.Zero
 
 def ncollect(expr, take='left'):
     """ A version of collect that 'works' with non-commuting sybols"""
+    if expr == S.Zero:
+        return expr
+
     terms = split_coeff_operator(expr.expand())
     if isinstance(terms, tuple):
         terms = [terms]
-        
+
     uniq = {}
     scalar = Add()
     for coeff, e in terms:
