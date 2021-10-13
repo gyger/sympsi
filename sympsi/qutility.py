@@ -29,6 +29,7 @@ __all__ = [
     'SymEq',
     'recursive_commutator',
     'ncollect',
+    'get_coefficient',
     'bch_expansion',
     'unitary_transformation',
     'hamiltonian_transformation',
@@ -963,6 +964,20 @@ def _expansion_search(expr, rep_list, lib=None):
     except Exception as e:
         print("Failed to identify series expansions: " + str(e))
         return e
+
+def get_coefficient(expr, ops):
+    expr = ncollect(expr.expand())
+    print(expr)
+    for term in expr.args:
+        for i, e in enumerate(term.args):
+            if isinstance(e, Operator) or isinstance(Dagger(e), Operator):
+                break
+        if e != ops:
+            continue
+        term = list(term.args)
+        term.pop(i)
+        return Mul(*term)
+    return Add()
 
 def ncollect(expr, take='left'):
     """ A version of collect that 'works' with non-commuting sybols"""
