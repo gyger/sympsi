@@ -981,7 +981,9 @@ def get_coefficient(expr, ops):
 def ncollect(expr, take='left'):
     """ A version of collect that 'works' with non-commuting sybols"""
     terms = split_coeff_operator(expr.expand())
-    
+    if isinstance(terms, tuple):
+        terms = [terms]
+        
     uniq = {}
     scalar = Add()
     for coeff, e in terms:
