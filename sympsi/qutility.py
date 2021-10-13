@@ -967,7 +967,6 @@ def _expansion_search(expr, rep_list, lib=None):
 
 def get_coefficient(expr, ops):
     expr = ncollect(expr.expand())
-    print(expr)
     for term in expr.args:
         for i, e in enumerate(term.args):
             if isinstance(e, Operator) or isinstance(Dagger(e), Operator):
