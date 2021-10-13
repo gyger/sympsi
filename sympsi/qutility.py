@@ -964,7 +964,7 @@ def _expansion_search(expr, rep_list, lib=None):
         print("Failed to identify series expansions: " + str(e))
         return e
 
-def ncollect(expr, *ops, take='left'):
+def ncollect(expr, take='left'):
     """ A version of collect that 'works' with non-commuting sybols"""
     terms = split_coeff_operator(expr.expand())
     
