@@ -581,7 +581,7 @@ def split_coeff_operator(e):
         o_args = []
 
         for arg in e.args:
-            if isinstance(arg, Operator):
+            if isinstance(arg, Operator) or isinstance(Dagger(arg), Operator):
                 o_args.append(arg)
             elif isinstance(arg, Pow):
                 c, o = split_coeff_operator(arg.base)
@@ -964,17 +964,30 @@ def _expansion_search(expr, rep_list, lib=None):
         print("Failed to identify series expansions: " + str(e))
         return e
 
-def ncollect(expr, *syms):
+def ncollect(expr, *ops, take='left'):
     """ A version of collect that 'works' with non-commuting sybols"""
-    reg = {}
-    for s in syms:
-        dummy = Dummy()
-        expr = expr.subs(s, dummy)
-        reg[dummy] = s
-        
-    expr = collect(expr, reg.keys())    
-    return expr.subs(reg)
+    terms = split_coeff_operator(expr.expand())
     
+    uniq = {}
+    scalar = Add()
+    for coeff, e in terms:
+        if isinstance(e, Operator) or isinstance(Dagger(e), Operator):
+            d = uniq.setdefault(e, Add())
+            uniq[e] += coeff
+        elif isinstance(e, Mul):
+            if take == 'right':
+                d = uniq.setdefault(e.args[-1], Add())
+                uniq[e.args[-1]] += Mul(coeff, *e.args[0:-1])
+            else:
+                d = uniq.setdefault(e.args[0], Add())
+                uniq[e.args[0]] += Mul(coeff, *e.args[1:])
+        else:
+            scalar += coeff
+    if take == 'right':
+        return Add(*[e*k for k,e in uniq.items()]) + scalar
+    else:
+        return Add(*[k*e for k,e in uniq.items()]) + scalar
+
 def bch_expansion(A, B, N=6, collect_operators=None, independent=False,
                   expansion_search=True):
     """ Apply the BCH expansion using the exponent A and the operator B """
