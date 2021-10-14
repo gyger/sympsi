@@ -43,7 +43,7 @@ __all__ = [
 
 import warnings
 from collections import namedtuple
-from sympy import (Add, Mul, Pow, exp, latex, Integral, Sum, Integer, Symbol,
+from sympy import (Add, Mul, Pow, Number, exp, latex, Integral, Sum, Integer, Symbol,
                    I, pi, simplify, oo, DiracDelta, KroneckerDelta, collect,
                    factorial, diff, Function, Derivative, Eq, symbols, S,
                    Matrix, Equality, MatMul, Dummy, rcollect, Poly, O, linsolve)
@@ -62,6 +62,8 @@ from sympsi.expectation import Expectation
 
 debug = False
 
+# Hack to get past Sympy's Dagger implementation breaking instance checking
+daggercls = Dagger(Dummy()).__class__
 
 # -----------------------------------------------------------------------------
 # IPython notebook related functions
@@ -574,16 +576,33 @@ def split_coeff_operator(e):
     if isinstance(e, Symbol):
         return e, 1
 
+    if isinstance(e, Add):
+        return [split_coeff_operator(arg) for arg in e.args]
+
+    if isinstance(e, Number):
+        return e, 1
+
     if isinstance(e, Operator):
         return 1, e
 
+    if isinstance(e, daggercls):
+        if e.is_commutative:
+            return e, 1 
+        else:
+            return 1, e
+    
     if isinstance(e, Mul):
         c_args = []
         o_args = []
 
         for arg in e.args:
-            if isinstance(arg, Operator) or isinstance(Dagger(arg), Operator):
+            if isinstance(arg, Operator):
                 o_args.append(arg)
+            elif isinstance(arg, daggercls):
+                if arg.is_commutative:
+                    c_args.append(arg)
+                else:
+                    o_args.append(arg)
             elif isinstance(arg, Pow):
                 c, o = split_coeff_operator(arg.base)
 
@@ -600,12 +619,8 @@ def split_coeff_operator(e):
                 c_args.append(arg)
 
         return Mul(*c_args), Mul(*o_args)
-
-    if isinstance(e, Add):
-        return [split_coeff_operator(arg) for arg in e.args]
-
-    if debug:
-        print("Warning: Unrecognized type of e: %s" % type(e))
+        
+    print("Warning: Unrecognized type of e: %s" % type(e))
 
     return None, None
 
@@ -985,7 +1000,9 @@ def get_coefficient(expr, ops, right=True):
             terms = list(expr.args)
             terms.remove(e)
             return Mul(*terms)
-    elif (isinstance(e, Operator) or isinstance(Dagger(e), Operator)):
+    elif isinstance(expr, Operator):
+        return Add(1)
+    elif isinstance(expr, daggercls):
         return Add(1)
     return S.Zero
 
@@ -1001,16 +1018,22 @@ def ncollect(expr, take='left'):
     uniq = {}
     scalar = Add()
     for coeff, e in terms:
-        if isinstance(e, Operator) or isinstance(Dagger(e), Operator):
-            d = uniq.setdefault(e, Add())
-            uniq[e] += coeff
-        elif isinstance(e, Mul):
+        if isinstance(e, Mul):
             if take == 'right':
                 d = uniq.setdefault(e.args[-1], Add())
                 uniq[e.args[-1]] += Mul(coeff, *e.args[0:-1])
             else:
                 d = uniq.setdefault(e.args[0], Add())
                 uniq[e.args[0]] += Mul(coeff, *e.args[1:])
+        elif isinstance(e, Operator):
+            d = uniq.setdefault(e, Add())
+            uniq[e] += coeff         
+        elif isinstance(e, daggercls):
+            if e.is_commutative:
+                scalar += coeff
+            else:
+                d = uniq.setdefault(e, Add())
+                uniq[e] += coeff  
         else:
             scalar += coeff
     if take == 'right':
