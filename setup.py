@@ -43,7 +43,7 @@ PLATFORMS = ["Linux", "Mac OSX", "Unix", "Windows"]
 
 def git_short_hash():
     try:
-        return "-" + os.popen('git log -1 --format="%h"').read().strip()
+        return "+" + os.popen('git log -1 --format="%h"').read().strip()
     except:
         return ""
 
