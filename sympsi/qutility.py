@@ -59,6 +59,7 @@ from sympy.physics.quantum.pauli import (SigmaX, SigmaY, SigmaMinus, SigmaPlus)
 #from sympy.physics.quantum.operatorordering import normal_ordered_form
 from sympsi.operatorordering import normal_ordered_form
 from sympsi.expectation import Expectation
+from sympsi.support import acollect # this collect ignores commutations.
 
 debug = False
 
@@ -1119,15 +1120,17 @@ def bch_expansion(A, B, N=6, collect_operators=None, independent=False,
         print("operators in expression: ", ops)
 
     # Apply hack to pass aroung collect to handling non-commuting symbols....
-    e_collected = ncollect(e, *ops)
-    # reg = {}
-    # for op in ops:
-    #     dummy = Dummy()
-    #     e = e.subs(op, dummy)
-    #     reg[dummy] = op
-        
-    # e_collected = collect(e, reg.keys())    
-    # e_collected = e_collected.subs(reg)
+    #e_collected = ncollect(e, *ops)
+    
+    reg = {}
+    for op in ops:
+        dummy = Dummy()
+        e = e.subs(op, dummy)
+        reg[dummy] = op
+    
+    # Use broken collect version. https://github.com/sympy/sympy/issues/16713
+    e_collected = acollect(e, reg.keys())    
+    e_collected = e_collected.subs(reg)
     
     if debug:
         print("search for series expansions: ", expansion_search)
