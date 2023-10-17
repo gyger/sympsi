@@ -57,8 +57,8 @@ from sympy.physics.quantum.pauli import (SigmaX, SigmaY, SigmaMinus, SigmaPlus)
 
 # TODO: figure out whether we can simply use the sympy version!!
 #from sympy.physics.quantum.operatorordering import normal_ordered_form
-from sympsi.operatorordering import normal_ordered_form
-from sympsi.expectation import Expectation
+from sympy.physics.quantum.operatorordering import normal_ordered_form
+from sympy.physics.quantum.expectation import Expectation
 from sympsi.support import acollect # this collect ignores commutations.
 
 debug = False
